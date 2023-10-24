@@ -1,7 +1,7 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -68,6 +68,14 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    pub start_time: usize,
+
+    pub syscall_counter: [u32; MAX_SYSCALL_NUM],
+
+    pub priority: usize,
+
+    pub stride: usize,
 }
 
 impl TaskControlBlockInner {
@@ -79,11 +87,41 @@ impl TaskControlBlockInner {
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
-    fn get_status(&self) -> TaskStatus {
+    pub fn get_status(&self) -> TaskStatus {
         self.task_status
     }
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
+    }
+
+    #[allow(unused, missing_docs)]
+    pub fn get_start_time(&self) -> usize {
+        self.start_time
+    }
+
+    #[allow(unused, missing_docs)]
+    pub fn get_syscall_count(&self) -> [u32; MAX_SYSCALL_NUM] {
+        self.syscall_counter
+    }
+
+    #[allow(unused, missing_docs)]
+    pub fn add_syscall_count(&mut self, syscall_id: usize) {
+        self.syscall_counter[syscall_id] += 1;
+    }
+
+    #[allow(unused, missing_docs)]
+    pub fn mmap(&mut self, start: usize, len: usize, port: usize) -> isize {
+        self.memory_set.mmap(start, len, port)
+    }
+
+    #[allow(unused, missing_docs)]
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+        self.memory_set.munmap(start, len)
+    }
+
+    #[allow(unused, missing_docs)]
+    pub fn set_task_prio(&mut self, prio: usize) {
+        self.priority = prio;
     }
 }
 
@@ -118,6 +156,10 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    start_time: 0,
+                    syscall_counter: [0; MAX_SYSCALL_NUM],
+                    priority: 16,
+                    stride: 0,
                 })
             },
         };
@@ -151,6 +193,9 @@ impl TaskControlBlock {
         // initialize base_size
         inner.base_size = user_sp;
         // initialize trap_cx
+
+        inner.priority = 16;
+
         let trap_cx = inner.get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
             entry_point,
@@ -191,6 +236,10 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    start_time: 0,
+                    syscall_counter: [0; MAX_SYSCALL_NUM],
+                    priority: parent_inner.priority,
+                    stride: parent_inner.stride,
                 })
             },
         });

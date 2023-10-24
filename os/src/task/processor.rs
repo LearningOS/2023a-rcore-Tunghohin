@@ -7,6 +7,7 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::config::MAX_SYSCALL_NUM;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
@@ -108,4 +109,60 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+#[allow(unused, missing_docs)]
+pub fn get_current_status() -> TaskStatus {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .get_status()
+}
+
+#[allow(unused, missing_docs)]
+pub fn get_current_start_time() -> usize {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .get_start_time()
+}
+
+#[allow(unused, missing_docs)]
+pub fn get_current_syscall_count() -> [u32; MAX_SYSCALL_NUM] {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .get_syscall_count()
+}
+
+#[allow(unused, missing_docs)]
+pub fn add_current_syscall_count(syscall_id: usize) {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .add_syscall_count(syscall_id)
+}
+
+#[allow(unused, missing_docs)]
+pub fn mmap(start: usize, len: usize, port: usize) -> isize {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .mmap(start, len, port)
+}
+
+#[allow(unused, missing_docs)]
+pub fn munmap(start: usize, len: usize) -> isize {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .munmap(start, len)
+}
+
+#[allow(unused, missing_docs)]
+pub fn set_task_prio(prio: usize) {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .set_task_prio(prio);
 }

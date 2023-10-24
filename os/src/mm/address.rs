@@ -116,7 +116,6 @@ impl VirtAddr {
 }
 impl From<VirtAddr> for VirtPageNum {
     fn from(v: VirtAddr) -> Self {
-        assert_eq!(v.page_offset(), 0);
         v.floor()
     }
 }

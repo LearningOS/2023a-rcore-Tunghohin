@@ -1,4 +1,6 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
+#![allow(unused, missing_docs)]
+
 use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::string::String;
 use alloc::vec;
@@ -108,7 +110,7 @@ impl PageTable {
         result
     }
     /// Find PageTableEntry by VirtPageNum
-    fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
+    pub fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
         let mut result: Option<&mut PageTableEntry> = None;
@@ -158,6 +160,15 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
+}
+
+pub fn translated_pa(token: usize, ptr: *const u8) -> usize {
+    let page_table = PageTable::from_token(token);
+    let va: VirtAddr = (ptr as usize).into();
+    let ppn: PhysPageNum = page_table.find_pte(va.into()).unwrap().ppn();
+    let mut pa: PhysAddr = ppn.into();
+    pa.0 += va.page_offset();
+    pa.into()
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
