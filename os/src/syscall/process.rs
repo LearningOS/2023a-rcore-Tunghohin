@@ -9,7 +9,7 @@ use crate::{
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         get_current_start_time, get_current_status, get_current_syscall_count, mmap, munmap,
-        set_task_prio, suspend_current_and_run_next, TaskControlBlock, TaskStatus,
+        set_task_prio, suspend_current_and_run_next, TaskStatus,
     },
     timer::get_time_us,
 };
@@ -186,48 +186,43 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(path: *const u8) -> isize {
-    let current_token = current_user_token();
-    let path = translated_str(current_token, path);
+    // A failed attempt
+    // let current_token = current_user_token();
+    // let path = translated_str(current_token, path);
 
-    if let Some(data) = open_file(path.as_str(), OpenFlags::RDONLY).clone() {
-        let data = data.read_all();
-        let slice = data.as_slice();
-        let new_task = Arc::new(TaskControlBlock::new(slice));
+    // if let Some(data) = open_file(path.as_str(), OpenFlags::RDONLY) {
+    //     let data = data.read_all();
+    //     let new_task = Arc::new(TaskControlBlock::new(&data));
 
-        let parent_task = current_task().unwrap();
-        parent_task
-            .inner_exclusive_access()
-            .children
-            .push(new_task.clone());
+    //     let parent_task = current_task().unwrap();
+    //     parent_task
+    //         .inner_exclusive_access()
+    //         .children
+    //         .push(new_task.clone());
 
-        // new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&parent_task));
+    //     new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&parent_task));
 
-        let res = new_task.pid.0;
-        add_task(new_task);
-        res as isize
-    } else {
-        -1
-    }
-    // pub fn sys_spawn(path: *const u8) -> isize {
-    //     let path = translated_str(current_user_token(), path);
-    //     if let Some(data) = open_file(&path, OpenFlags::RDONLY) {
-    //         let new_task = Arc::new(TaskControlBlock::new(&data.read_all()));
-    //         let parent_task = current_task().unwrap();
-
-    //         new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&parent_task));
-
-    //         parent_task
-    //             .inner_exclusive_access()
-    //             .children
-    //             .push(new_task.clone());
-
-    //         let pid = new_task.pid.0;
-    //         add_task(new_task);
-    //         pid as isize
-    //     } else {
-    //         -1
-    //     }
+    //     let res = new_task.pid.0;
+    //     add_task(new_task);
+    //     res as isize
+    // } else {
+    //     -1
     // }
+    let current_task = current_task().unwrap();
+    let path = translated_str(current_user_token(), path);
+    let new_task = current_task.fork();
+    let new_pid = new_task.pid.0;
+
+    new_task.exec(
+        open_file(path.as_str(), OpenFlags::RDONLY)
+            .unwrap()
+            .read_all()
+            .as_ref(),
+    );
+
+    add_task(new_task);
+
+    new_pid as isize
 }
 
 // YOUR JOB: Set task priority.

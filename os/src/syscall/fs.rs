@@ -85,12 +85,16 @@ pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    if new_name == old_name {
+        -1
+    } else {
+        -1
+    }
 }
 
 /// YOUR JOB: Implement unlinkat.

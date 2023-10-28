@@ -186,10 +186,31 @@ impl Inode {
 
     #[allow(unused, missing_docs)]
     pub fn link_file(&self, origin_name: &str, new_name: &str) -> isize {
-        let fs = self.fs.lock();
-        let origin_inode_id =
-            self.read_disk_inode(|root_inode| self.find_inode_id(origin_name, root_inode));
-        block_cache_sync_all();
-        0
+        let mut fs = self.fs.lock();
+        if let Some(origin_inode_id) =
+            self.read_disk_inode(|root_inode| self.find_inode_id(origin_name, root_inode))
+        {
+            let (block_id, block_offset) = fs.get_disk_inode_pos(origin_inode_id);
+            get_block_cache(block_id as usize, fs.block_device.clone())
+                .lock()
+                .modify(block_offset, |disk_inode: &mut DiskInode| {
+                    disk_inode.nlink += 1;
+                });
+
+            self.modify_disk_inode(|root_inode: &mut DiskInode| {
+                let new_size = (root_inode.size as usize / DIRENT_SZ + 1) * DIRENT_SZ;
+                self.increase_size(new_size as u32, root_inode, &mut fs);
+                root_inode.write_at(
+                    root_inode.size as usize / DIRENT_SZ * DIRENT_SZ,
+                    DirEntry::new(new_name, origin_inode_id).as_bytes(),
+                    &self.block_device,
+                );
+            });
+
+            block_cache_sync_all();
+            0
+        } else {
+            -1
+        }
     }
 }
