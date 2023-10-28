@@ -183,4 +183,13 @@ impl Inode {
         });
         block_cache_sync_all();
     }
+
+    #[allow(unused, missing_docs)]
+    pub fn link_file(&self, origin_name: &str, new_name: &str) -> isize {
+        let fs = self.fs.lock();
+        let origin_inode_id =
+            self.read_disk_inode(|root_inode| self.find_inode_id(origin_name, root_inode));
+        block_cache_sync_all();
+        0
+    }
 }
