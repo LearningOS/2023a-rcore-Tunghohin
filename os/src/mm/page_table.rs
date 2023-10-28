@@ -108,7 +108,7 @@ impl PageTable {
         result
     }
     /// Find PageTableEntry by VirtPageNum
-    fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
+    pub fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
         let mut result: Option<&mut PageTableEntry> = None;
@@ -179,6 +179,16 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+#[allow(unused, missing_docs)]
+pub fn translated_pa(token: usize, ptr: *const u8) -> usize {
+    let page_table = PageTable::from_token(token);
+    let va: VirtAddr = (ptr as usize).into();
+    let ppn: PhysPageNum = page_table.find_pte(va.into()).unwrap().ppn();
+    let mut pa: PhysAddr = ppn.into();
+    pa.0 += va.page_offset();
+    pa.into()
 }
 
 /// Translate&Copy a ptr[u8] array end with `\0` to a `String` Vec through page table

@@ -22,6 +22,8 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
+use crate::config::STRIDE_BIGNUM;
+
 use crate::fs::{open_file, OpenFlags};
 use alloc::sync::Arc;
 pub use context::TaskContext;
@@ -33,7 +35,8 @@ pub use task::{TaskControlBlock, TaskStatus};
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
+    current_task, current_trap_cx, current_user_token, get_current_start_time, get_current_status,
+    get_current_syscall_count, mmap, munmap, run_tasks, schedule, set_task_prio, take_current_task,
     Processor,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
@@ -46,6 +49,7 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    task_inner.stride = task_inner.stride + STRIDE_BIGNUM / task_inner.priority;
     drop(task_inner);
     // ---- release current PCB
 
