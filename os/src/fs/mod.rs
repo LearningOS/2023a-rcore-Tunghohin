@@ -4,6 +4,7 @@ mod inode;
 mod stdio;
 
 use crate::mm::UserBuffer;
+pub use inode::ROOT_INODE;
 
 /// trait File for all file types
 pub trait File: Send + Sync {
@@ -15,6 +16,21 @@ pub trait File: Send + Sync {
     fn read(&self, buf: UserBuffer) -> usize;
     /// write to the file from buf, return the number of bytes written
     fn write(&self, buf: UserBuffer) -> usize;
+
+    #[allow(unused, missing_docs)]
+    fn get_node_id(&self) -> u32 {
+        u32::MAX
+    }
+
+    #[allow(unused, missing_docs)]
+    fn get_mode(&self) -> StatMode {
+        StatMode::NULL
+    }
+
+    #[allow(unused, missing_docs)]
+    fn get_nlink(&self) -> u32 {
+        0
+    }
 }
 
 /// The stat of a inode
@@ -30,7 +46,8 @@ pub struct Stat {
     /// number of hard links
     pub nlink: u32,
     /// unused pad
-    pad: [u64; 7],
+    #[allow(unused, missing_docs)]
+    pub pad: [u64; 7],
 }
 
 bitflags! {

@@ -22,6 +22,7 @@ const INDIRECT1_BOUND: usize = DIRECT_BOUND + INODE_INDIRECT1_COUNT;
 const INDIRECT2_BOUND: usize = INDIRECT1_BOUND + INODE_INDIRECT2_COUNT;
 /// Super block of a filesystem
 #[repr(C)]
+#[allow(unused, missing_docs)]
 pub struct SuperBlock {
     magic: u32,
     pub total_blocks: u32,
@@ -69,6 +70,7 @@ impl SuperBlock {
 }
 /// Type of a disk inode
 #[derive(PartialEq)]
+#[allow(unused, missing_docs)]
 pub enum DiskInodeType {
     File,
     Directory,
@@ -80,12 +82,13 @@ type IndirectBlock = [u32; BLOCK_SZ / 4];
 type DataBlock = [u8; BLOCK_SZ];
 /// A disk inode
 #[repr(C)]
+#[allow(unused, missing_docs)]
 pub struct DiskInode {
     pub size: u32,
     pub direct: [u32; INODE_DIRECT_COUNT],
     pub indirect1: u32,
     pub indirect2: u32,
-    type_: DiskInodeType,
+    pub type_: DiskInodeType,
 
     pub nlink: u32,
 }
@@ -395,7 +398,9 @@ impl DiskInode {
 #[repr(C)]
 pub struct DirEntry {
     name: [u8; NAME_LENGTH_LIMIT + 1],
-    inode_id: u32,
+
+    #[allow(unused, missing_docs)]
+    pub inode_id: u32,
 }
 /// Size of a directory entry
 pub const DIRENT_SZ: usize = 32;
