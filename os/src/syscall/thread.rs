@@ -1,6 +1,6 @@
 use crate::{
     mm::kernel_token,
-    task::{add_task, current_task, TaskControlBlock},
+    task::{add_task, current_process, current_task, TaskControlBlock},
     trap::{trap_handler, TrapContext},
 };
 use alloc::sync::Arc;
@@ -17,6 +17,12 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
             .unwrap()
             .tid
     );
+
+    current_process()
+        .inner_exclusive_access()
+        .mutex_need
+        .push(None);
+
     let task = current_task().unwrap();
     let process = task.process.upgrade().unwrap();
     // create a new thread
