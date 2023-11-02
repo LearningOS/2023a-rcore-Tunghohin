@@ -4,6 +4,7 @@ use crate::{
     trap::{trap_handler, TrapContext},
 };
 use alloc::sync::Arc;
+use alloc::vec;
 /// thread create syscall
 pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     trace!(
@@ -22,6 +23,22 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
         .inner_exclusive_access()
         .mutex_need
         .push(None);
+
+    current_process()
+        .inner_exclusive_access()
+        .semaphore_need
+        .push(None);
+
+    let size = current_process()
+        .inner_exclusive_access()
+        .semaphore_allocated
+        .last()
+        .unwrap()
+        .len();
+    current_process()
+        .inner_exclusive_access()
+        .semaphore_allocated
+        .push(vec![0; size]);
 
     let task = current_task().unwrap();
     let process = task.process.upgrade().unwrap();

@@ -1,6 +1,9 @@
+use core::ops::{AddAssign, SubAssign};
+
 use crate::sync::{Condvar, Mutex, MutexBlocking, MutexSpin, Semaphore};
 use crate::task::{block_current_and_run_next, current_process, current_task};
 use crate::timer::{add_timer, get_time_ms};
+use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -131,8 +134,11 @@ pub fn sys_mutex_unlock(mutex_id: usize) -> isize {
             .tid
     );
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
+
+    process_inner.mutex_allocated[mutex_id] = None;
+
     drop(process_inner);
     drop(process);
     mutex.unlock();
@@ -166,6 +172,12 @@ pub fn sys_semaphore_create(res_count: usize) -> isize {
         process_inner
             .semaphore_list
             .push(Some(Arc::new(Semaphore::new(res_count))));
+
+        process_inner.semaphore_available.push(res_count);
+        for i in process_inner.semaphore_allocated.iter_mut() {
+            i.push(0);
+        }
+
         process_inner.semaphore_list.len() - 1
     };
     id as isize
@@ -184,7 +196,19 @@ pub fn sys_semaphore_up(sem_id: usize) -> isize {
             .tid
     );
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
+
+    let thread_id = current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .res
+        .as_ref()
+        .unwrap()
+        .tid;
+
+    process_inner.semaphore_allocated[thread_id][sem_id].sub_assign(1);
+    process_inner.semaphore_available[sem_id].add_assign(1);
+
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
     drop(process_inner);
     sem.up();
@@ -204,8 +228,66 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
             .tid
     );
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+
+    let thread_id = current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .res
+        .as_ref()
+        .unwrap()
+        .tid;
+
+    process_inner.semaphore_need[thread_id] = Some(sem_id);
+    if process_inner.deadlock_detect {
+        let mut work = process_inner.semaphore_available.clone();
+        let mut not_finished = BTreeSet::<usize>::new();
+        for (thread_id, thread_alloc) in process_inner.semaphore_allocated.iter().enumerate() {
+            if !thread_alloc.is_empty() {
+                not_finished.insert(thread_id);
+            }
+        }
+
+        let mut all_released = false;
+        let mut all_finished = not_finished.is_empty();
+        while !all_released && !all_finished {
+            all_released = true;
+            let mut finished = Vec::<usize>::new();
+            for thread_id in not_finished.iter() {
+                if let Some(sid) = process_inner.semaphore_need[*thread_id] {
+                    if work[sid] == 0 {
+                        continue;
+                    }
+                }
+                all_released = false;
+
+                finished.push(*thread_id);
+                for (sid, i) in process_inner.semaphore_allocated[*thread_id]
+                    .iter()
+                    .enumerate()
+                {
+                    work[sid] += i;
+                }
+            }
+            for thread_id in finished.iter() {
+                not_finished.remove(thread_id);
+            }
+            all_finished = not_finished.is_empty();
+        }
+        // return -0xdead;
+
+        if !not_finished.is_empty() {
+            return -0xdead;
+        }
+    }
+
+    process_inner.semaphore_need[thread_id] = None;
+    process_inner.semaphore_available[sem_id].sub_assign(1);
+    process_inner.semaphore_allocated[thread_id][sem_id].add_assign(1);
+
+    // return -0xdead;
+
     drop(process_inner);
     sem.down();
     0
