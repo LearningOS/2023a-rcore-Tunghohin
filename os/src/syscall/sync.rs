@@ -3,10 +3,8 @@ use core::ops::{AddAssign, SubAssign};
 use crate::sync::{Condvar, Mutex, MutexBlocking, MutexSpin, Semaphore};
 use crate::task::{block_current_and_run_next, current_process, current_task};
 use crate::timer::{add_timer, get_time_ms};
-use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
 use alloc::vec;
-use alloc::vec::Vec;
 
 /// sleep syscall
 pub fn sys_sleep(ms: usize) -> isize {
@@ -56,10 +54,23 @@ pub fn sys_mutex_create(blocking: bool) -> isize {
         .map(|(id, _)| id)
     {
         process_inner.mutex_list[id] = mutex;
+        process_inner.mutex_available[id] = 1;
+        for i in process_inner.mutex_need.iter_mut() {
+            i[id] = 0;
+        }
+        for i in process_inner.mutex_allocated.iter_mut() {
+            i[id] = 0;
+        }
         id as isize
     } else {
         process_inner.mutex_list.push(mutex);
-        process_inner.mutex_allocated.push(None);
+        process_inner.mutex_available.push(1);
+        for i in process_inner.mutex_need.iter_mut() {
+            i.push(0);
+        }
+        for i in process_inner.mutex_allocated.iter_mut() {
+            i.push(0);
+        }
         process_inner.mutex_list.len() as isize - 1
     }
 }
@@ -87,33 +98,47 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
         .as_ref()
         .unwrap()
         .tid;
-    process_inner.mutex_need[thread_id] = Some(mutex_id);
 
-    let size: usize = process_inner.mutex_need.len();
+    process_inner.mutex_need[thread_id][mutex_id].add_assign(1);
+
     if process_inner.deadlock_detect {
-        let mut vis: Vec<bool> = vec![false; size];
+        let thread_count = process_inner.semaphore_need.len();
+        let mut finished = vec![false; thread_count];
+        let mut work = process_inner.mutex_available.clone();
 
-        let mut mutex = mutex_id;
-        loop {
-            if let Some(thread_id) = process_inner.mutex_allocated[mutex] {
-                if vis[thread_id] == false {
-                    vis[thread_id] = true;
-                    if let Some(mutex_tmp) = process_inner.mutex_need[thread_id] {
-                        mutex = mutex_tmp;
-                    } else {
-                        break;
+        let mut releaseable = true;
+        while releaseable {
+            releaseable = false;
+            for thread_id in 0..thread_count {
+                if !finished[thread_id] {
+                    let mut flag = false;
+                    for mutex_index in 0..work.len() {
+                        if process_inner.mutex_need[thread_id][mutex_index] > work[mutex_index] {
+                            flag = true;
+                            break;
+                        }
                     }
-                } else {
-                    return -0xdead;
+                    if !flag {
+                        finished[thread_id] = true;
+                        work.iter_mut().enumerate().for_each(|(idx, available)| {
+                            *available += process_inner.mutex_allocated[thread_id][idx];
+                        });
+                        releaseable = true;
+                    }
                 }
-            } else {
-                break;
+            }
+        }
+        for status in finished {
+            if status == false {
+                process_inner.mutex_need[thread_id][mutex_id].sub_assign(1);
+                return -0xDEAD;
             }
         }
     }
 
-    process_inner.mutex_allocated[mutex_id] = Some(thread_id);
-    process_inner.mutex_need[thread_id] = None;
+    process_inner.mutex_need[thread_id][mutex_id].sub_assign(1);
+    process_inner.mutex_available[mutex_id].sub_assign(1);
+    process_inner.mutex_allocated[thread_id][mutex_id].add_assign(1);
 
     drop(process_inner);
     drop(process);
@@ -137,7 +162,16 @@ pub fn sys_mutex_unlock(mutex_id: usize) -> isize {
     let mut process_inner = process.inner_exclusive_access();
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
 
-    process_inner.mutex_allocated[mutex_id] = None;
+    let thread_id = current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .res
+        .as_ref()
+        .unwrap()
+        .tid;
+
+    process_inner.mutex_available[mutex_id].add_assign(1);
+    process_inner.mutex_allocated[thread_id][mutex_id].sub_assign(1);
 
     drop(process_inner);
     drop(process);
@@ -167,13 +201,22 @@ pub fn sys_semaphore_create(res_count: usize) -> isize {
         .map(|(id, _)| id)
     {
         process_inner.semaphore_list[id] = Some(Arc::new(Semaphore::new(res_count)));
+        process_inner.semaphore_available[id] = res_count;
+        for i in process_inner.semaphore_need.iter_mut() {
+            i[id] = 0;
+        }
+        for i in process_inner.semaphore_allocated.iter_mut() {
+            i[id] = 0;
+        }
         id
     } else {
         process_inner
             .semaphore_list
             .push(Some(Arc::new(Semaphore::new(res_count))));
-
         process_inner.semaphore_available.push(res_count);
+        for i in process_inner.semaphore_need.iter_mut() {
+            i.push(0);
+        }
         for i in process_inner.semaphore_allocated.iter_mut() {
             i.push(0);
         }
@@ -206,8 +249,8 @@ pub fn sys_semaphore_up(sem_id: usize) -> isize {
         .unwrap()
         .tid;
 
-    process_inner.semaphore_allocated[thread_id][sem_id].sub_assign(1);
     process_inner.semaphore_available[sem_id].add_assign(1);
+    process_inner.semaphore_allocated[thread_id][sem_id].sub_assign(1);
 
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
     drop(process_inner);
@@ -230,7 +273,6 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     let process = current_process();
     let mut process_inner = process.inner_exclusive_access();
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
-
     let thread_id = current_task()
         .unwrap()
         .inner_exclusive_access()
@@ -239,57 +281,50 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
         .unwrap()
         .tid;
 
-    process_inner.semaphore_need[thread_id] = Some(sem_id);
+    process_inner.semaphore_need[thread_id][sem_id].add_assign(1);
     if process_inner.deadlock_detect {
+        let thread_count = process_inner.semaphore_need.len();
+        let mut finished = vec![false; thread_count];
         let mut work = process_inner.semaphore_available.clone();
-        let mut not_finished = BTreeSet::<usize>::new();
-        for (thread_id, thread_alloc) in process_inner.semaphore_allocated.iter().enumerate() {
-            if !thread_alloc.is_empty() {
-                not_finished.insert(thread_id);
-            }
-        }
 
-        let mut all_released = false;
-        let mut all_finished = not_finished.is_empty();
-        while !all_released && !all_finished {
-            all_released = true;
-            let mut finished = Vec::<usize>::new();
-            for thread_id in not_finished.iter() {
-                if let Some(sid) = process_inner.semaphore_need[*thread_id] {
-                    if work[sid] == 0 {
-                        continue;
+        let mut releaseable = true;
+        while releaseable {
+            releaseable = false;
+            for thread_id in 0..thread_count {
+                if !finished[thread_id] {
+                    let mut flag = false;
+                    for semaphore_idx in 0..work.len() {
+                        if process_inner.semaphore_need[thread_id][semaphore_idx]
+                            > work[semaphore_idx]
+                        {
+                            flag = true;
+                            break;
+                        }
+                    }
+                    if !flag {
+                        finished[thread_id] = true;
+                        work.iter_mut().enumerate().for_each(|(idx, available)| {
+                            *available += process_inner.semaphore_allocated[thread_id][idx];
+                        });
+                        releaseable = true;
                     }
                 }
-                all_released = false;
-
-                finished.push(*thread_id);
-                for (sid, i) in process_inner.semaphore_allocated[*thread_id]
-                    .iter()
-                    .enumerate()
-                {
-                    work[sid] += i;
-                }
             }
-            for thread_id in finished.iter() {
-                not_finished.remove(thread_id);
-            }
-            all_finished = not_finished.is_empty();
         }
-        // return -0xdead;
-
-        if !not_finished.is_empty() {
-            return -0xdead;
+        for status in finished {
+            if status == false {
+                process_inner.semaphore_need[thread_id][sem_id].sub_assign(1);
+                return -0xDEAD;
+            }
         }
     }
 
-    process_inner.semaphore_need[thread_id] = None;
-    process_inner.semaphore_available[sem_id].sub_assign(1);
-    process_inner.semaphore_allocated[thread_id][sem_id].add_assign(1);
-
-    // return -0xdead;
-
     drop(process_inner);
     sem.down();
+    let mut process_inner = process.inner_exclusive_access();
+    process_inner.semaphore_need[thread_id][sem_id].sub_assign(1);
+    process_inner.semaphore_available[sem_id].sub_assign(1);
+    process_inner.semaphore_allocated[thread_id][sem_id].add_assign(1);
     0
 }
 /// condvar create syscall

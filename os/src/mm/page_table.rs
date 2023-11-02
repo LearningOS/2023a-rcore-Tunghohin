@@ -198,6 +198,16 @@ pub fn translated_str(token: usize, ptr: *const u8) -> String {
     string
 }
 
+#[allow(unused, missing_docs)]
+pub fn translated_pa(token: usize, ptr: *const u8) -> usize {
+    let page_table = PageTable::from_token(token);
+    let va: VirtAddr = (ptr as usize).into();
+    let ppn: PhysPageNum = page_table.find_pte(va.into()).unwrap().ppn();
+    let mut pa: PhysAddr = ppn.into();
+    pa.0 += va.page_offset();
+    pa.into()
+}
+
 /// translate a pointer `ptr` in other address space to a immutable u8 slice in kernel address space. NOTICE: the content pointed to by the pointer `ptr` cannot cross physical pages, otherwise translated_byte_buffer should be used.
 pub fn translated_ref<T>(token: usize, ptr: *const T) -> &'static T {
     let page_table = PageTable::from_token(token);

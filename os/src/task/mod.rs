@@ -23,6 +23,7 @@ use self::id::TaskUserRes;
 use crate::fs::{open_file, OpenFlags};
 use crate::task::manager::add_stopping_task;
 use crate::timer::remove_timer;
+use alloc::vec;
 use alloc::{sync::Arc, vec::Vec};
 use lazy_static::*;
 use manager::fetch_task;
@@ -149,6 +150,13 @@ pub fn exit_current_and_run_next(exit_code: i32) {
         // dealloc_tid and dealloc_user_res require access to PCB inner, so we
         // need to collect those user res first, then release process_inner
         // for now to avoid deadlock/double borrow problem.
+
+        process_inner.mutex_need[tid] = vec![0; process_inner.mutex_need[tid].len()];
+        process_inner.mutex_allocated[tid] = vec![0; process_inner.mutex_allocated[tid].len()];
+        process_inner.semaphore_need[tid] = vec![0; process_inner.semaphore_need[tid].len()];
+        process_inner.semaphore_allocated[tid] =
+            vec![0; process_inner.semaphore_allocated[tid].len()];
+
         drop(process_inner);
         recycle_res.clear();
 
